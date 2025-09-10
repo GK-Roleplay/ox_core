@@ -1,158 +1,133 @@
-import { sleep, waitFor } from '@communityox/ox_lib';
-import { cache, inputDialog } from '@communityox/ox_lib/client';
-import { OxPlayer } from './player';
-import { netEvent } from 'utils';
-import { CHARACTER_SELECT, SPAWN_LOCATION } from 'config';
-import locale from '../common/locales';
-import type { Character, NewCharacter } from 'types';
+// CLIENT
+type SpawnData = { x:number;y:number;z:number; heading:number; model:number|string; health?:number; armour?:number; };
 
-DoScreenFadeOut(0);
-NetworkStartSoloTutorialSession();
-setTimeout(() => emitNet('ox:playerJoined'));
+const wait = (ms:number)=>new Promise(res=>setTimeout(res,ms));
+const tick = ()=>wait(0);
 
-async function StartSession() {
-  if (IsPlayerSwitchInProgress()) {
-    StopPlayerSwitch();
-  }
-
-  if (GetIsLoadingScreenActive()) {
-    SendLoadingScreenMessage('{"fullyLoaded": true}');
+function clearAllScreenFX() {
+  try {
+    AnimpostfxStopAll();
+    ClearTimecycleModifier();
+    SetTimecycleModifierStrength(0.0);
+    ShakeGameplayCam('NONE', 0.0);
+    DestroyAllCams(true);
+    RenderScriptCams(false, false, 0, true, true);
+    ShutdownLoadingScreen();
     ShutdownLoadingScreenNui();
-  }
-
-  NetworkStartSoloTutorialSession();
-  DoScreenFadeOut(0);
-  ShutdownLoadingScreen();
-  SetPlayerControl(cache.playerId, false, 0);
-  SetPlayerInvincible(cache.playerId, true);
-
-  while (!OxPlayer.isLoaded) {
-    DisableAllControlActions(0);
-    ThefeedHideThisFrame();
-    HideHudAndRadarThisFrame();
-
-    await sleep(0);
-  }
-
-  NetworkEndTutorialSession();
-  SetPlayerControl(cache.playerId, true, 0);
-  SetPlayerInvincible(cache.playerId, false);
-  SetMaxWantedLevel(0);
-  NetworkSetFriendlyFireOption(true);
-  SetPlayerHealthRechargeMultiplier(cache.playerId, 0.0);
+  } catch {}
 }
 
-netEvent('ox:startCharacterSelect', async (_userId: number, characters: Character[]) => {
-  if (OxPlayer.isLoaded) {
-    OxPlayer.isLoaded = false;
-
-    emit('ox:playerLogout');
+async function loadModel(model:number|string, timeout=10000) {
+  const hash = typeof model === 'number' ? model : GetHashKey(model);
+  if (!IsModelInCdimage(hash) || !IsModelValid(hash)) throw new Error(`Invalid model ${model}`);
+  RequestModel(hash);
+  const start = GetGameTimer();
+  while (!HasModelLoaded(hash)) {
+    await tick();
+    if (GetGameTimer() - start > timeout) throw new Error('Model load timeout');
   }
+  return hash;
+}
 
-  StartSession();
-
-  if (!CHARACTER_SELECT) return;
-
-  const character = characters[0];
-  const [x, y, z] = [
-    character?.x || SPAWN_LOCATION[0],
-    character?.y || SPAWN_LOCATION[1],
-    character?.z || SPAWN_LOCATION[2],
-  ];
-  const heading = character?.heading || SPAWN_LOCATION[3];
-
+async function preloadSceneAt(x:number,y:number,z:number, timeout=6000) {
+  NewLoadSceneStart(x, y, z, x, y, z, 50.0, 0);
+  const t0 = GetGameTimer();
+  while (IsNewLoadSceneActive()) {
+    await tick();
+    if (GetGameTimer() - t0 > timeout) break;
+  }
   RequestCollisionAtCoord(x, y, z);
-  FreezeEntityPosition(cache.ped, true);
-  SetEntityCoordsNoOffset(cache.ped, x, y, z, true, true, false);
-  SetEntityHeading(cache.ped, heading);
+}
 
-  SwitchOutPlayer(cache.ped, 1 | 8192, 1);
+async function waitCollisionAround(ped:number, timeout=8000) {
+  const t0 = GetGameTimer();
+  while (!HasCollisionLoadedAroundEntity(ped)) {
+    RequestCollisionAtCoord(...GetEntityCoords(ped) as [number, number, number]);
+    await tick();
+    if (GetGameTimer() - t0 > timeout) break;
+  }
+}
 
-  while (GetPlayerSwitchState() !== 5) await sleep(0);
+async function applyFreemodeDefaultsIfNeeded(ped:number) {
+  const m = GetEntityModel(ped);
+  if (m === GetHashKey('mp_m_freemode_01') || m === GetHashKey('mp_f_freemode_01')) {
+    SetPedDefaultComponentVariation(ped);
+    await tick();
+  }
+}
 
-  DoScreenFadeIn(200);
+function fullyRevealPed(ped:number) {
+  ResetEntityAlpha(ped);
+  SetEntityAlpha(ped, 255, false);
+  SetEntityVisible(ped, true, false);
+  SetEntityCollision(ped, true, true);
+  SetPedCanRagdoll(ped, true);
+  FreezeEntityPosition(ped, false);
+  NetworkSetEntityInvisibleToNetwork(ped, false);
+  SetPlayerControl(PlayerId(), true, 0);
+  DisplayRadar(true);
+}
 
-  if (character) {
-    return emitNet('ox:setActiveCharacter', character.charId);
+async function spawnLocal(spawn: SpawnData) {
+  // always override with airport coords
+  const airportX = -1037.0;
+  const airportY = -2737.0;
+  const airportZ = 13.8;
+  const airportHeading = 90.0;
+
+  DoScreenFadeOut(400);
+  while (!IsScreenFadedOut()) await tick();
+
+  clearAllScreenFX();
+  try { leavePreviewRoom?.(); resetToSkyHold?.(); } catch {}
+
+  let ped = PlayerPedId();
+  SetPlayerControl(PlayerId(), false, 0);
+  FreezeEntityPosition(ped, true);
+  SetEntityVisible(ped, false, false);
+  SetEntityCollision(ped, false, false);
+
+  await preloadSceneAt(airportX, airportY, airportZ);
+
+  let hash:number;
+  try {
+    hash = await loadModel(spawn.model);
+  } catch (e) {
+    console.warn('[spawn] model failed, fallback to mp_m_freemode_01', e);
+    hash = await loadModel('mp_m_freemode_01');
   }
 
-  const input = await inputDialog(
-    locale('create_character'),
-    [
-      {
-        type: 'input',
-        required: true,
-        icon: 'user-pen',
-        label: locale('firstname'),
-        placeholder: 'John',
-      },
-      {
-        type: 'input',
-        required: true,
-        icon: 'user-pen',
-        label: locale('lastname'),
-        placeholder: 'Smith',
-      },
-      {
-        type: 'select',
-        required: true,
-        icon: 'circle-user',
-        label: locale('gender'),
-        options: [
-          {
-            label: locale('male'),
-            value: 'male',
-          },
-          {
-            label: locale('female'),
-            value: 'female',
-          },
-          {
-            label: locale('non_binary'),
-            value: 'non_binary',
-          },
-        ],
-      },
-      {
-        type: 'date',
-        required: true,
-        icon: 'calendar-days',
-        label: locale('date_of_birth'),
-        format: 'YYYY-MM-DD',
-        min: '1900-01-01',
-        max: '2006-01-01',
-        default: '2006-01-01',
-      },
-    ],
-    {
-      allowCancel: false,
-    },
-  );
+  SetPlayerModel(PlayerId(), hash);
+  SetModelAsNoLongerNeeded(hash);
+  ped = PlayerPedId();
 
-  if (!input) return;
+  SetEntityCoordsNoOffset(ped, airportX, airportY, airportZ, false, false, false);
+  SetEntityHeading(ped, airportHeading);
 
-  emitNet('ox:setActiveCharacter', <NewCharacter>{
-    firstName: input[0] as string,
-    lastName: input[1] as string,
-    gender: input[2] as string,
-    date: input[3] as number,
-  });
+  await waitCollisionAround(ped);
+
+  SetEntityHealth(ped, Math.max(100, Number(spawn.health ?? 200)));
+  SetPedArmour(ped, Math.max(0, Number(spawn.armour ?? 0)));
+
+  await applyFreemodeDefaultsIfNeeded(ped);
+  fullyRevealPed(ped);
+
+  DoScreenFadeIn(400);
+  console.log('[spawn] finished at LSIA', { airportX, airportY, airportZ });
+  SendNuiMessage(JSON.stringify({ action: 'close' }));
+  SetNuiFocus(false, false);
+}
+
+// listen from server
+onNet('gkrp:spawnWithModel', async (spawn: SpawnData) => {
+  try {
+    await spawnLocal(spawn);
+  } catch (e) {
+    console.error('[spawn] failed', e);
+    await spawnLocal({ x:-1037.0, y:-2737.0, z:13.8, heading:90.0, model:'mp_m_freemode_01', health:200, armour:0 });
+  }
 });
 
-netEvent('ox:setActiveCharacter', async (character: Character) => {
-  if (CHARACTER_SELECT) {
-    SwitchInPlayer(PlayerPedId());
-    SetGameplayCamRelativeHeading(0);
-  }
-
-  await waitFor(() => (IsScreenFadedIn() && !IsPlayerSwitchInProgress() ? true : undefined), '', 0);
-
-  SetEntityHealth(cache.ped, character.health ?? GetEntityMaxHealth(cache.ped));
-  SetPedArmour(cache.ped, character.armour ?? 0);
-  FreezeEntityPosition(cache.ped, false);
-
-  OxPlayer.isLoaded = true;
-
-  emit('playerSpawned');
-  emit('ox:playerLoaded', OxPlayer, character.isNew);
+onNet('gkrp:spawnError', (msg:string)=> {
+  console.warn('[spawn] server error:', msg);
 });

@@ -1,55 +1,100 @@
 import { OxPlayer } from 'player/class';
-import { CreateUser, GetUserIdFromIdentifier, IsUserBanned, UpdateUserTokens } from './db';
+import { CreateUser, GetUserIdFromIdentifier, IsUserBanned, UpdateUserTokens, GetUserAuthByUsername, GetUsernameByUserId } from './db';
 import { GetIdentifiers, GetPlayerLicense } from 'utils';
 import { DEBUG, SV_LAN } from '../config';
 import type { Dict } from 'types';
 import locales from '../../common/locales';
+import bcrypt from 'bcryptjs';
+import { db } from '../db';
+export async function SavePlayer(player: any) {
+  try {
+    if (!player || !player.charId) {
+      console.warn('[SavePlayer] called without charId', {
+        src: player?.source,
+        userId: player?.userId,
+      });
+      return; // nothing to save yet
+    }
 
+    // safest way: pull inventory from ox_inventory
+    const inv = global.exports.ox_inventory.GetInventory(player.source);
+    if (!inv) return;
+
+    await db.query(
+      'UPDATE character_inventory SET inventory = ? WHERE charId = ?',
+      [JSON.stringify(inv), player.charId]
+    );
+  } catch (err) {
+    console.error(`[ox_core] Failed saving char ${player?.charId}`, err);
+  }
+}
 const connectingPlayers: Dict<OxPlayer> = {};
 
-/** Loads existing data for the player, or inserts new data into the database. */
-async function loadPlayer(playerId: number) {
+export async function loadPlayer(playerId: number, forceUserId?: number) {
   let player: OxPlayer | undefined;
 
   try {
     if (serverLockdown) return serverLockdown;
 
     player = new OxPlayer(playerId);
-    const license = SV_LAN ? 'fayoum' : GetPlayerLicense(playerId);
 
-    if (!license) return locales('no_license');
+    // Figure out the userId:
+    let userId = 0;
 
-    const identifier = license.substring(license.indexOf(':') + 1);
-    let userId: number;
+    if (forceUserId && Number.isInteger(forceUserId) && forceUserId > 0) {
+      // NUI-authenticated path
+      userId = forceUserId;
+    } else {
+      // Identifier path (no auto-create if not found)
+      const license = SV_LAN ? 'fayoum' : GetPlayerLicense(playerId);
+      if (!license) return locales('no_license');
 
-    userId = (await GetUserIdFromIdentifier(identifier)) ?? 0;
+      const identifier = license.substring(license.indexOf(':') + 1);
+      player.identifier = identifier;
 
+      userId = (await GetUserIdFromIdentifier(identifier)) ?? 0;
+
+      // If no account linked to this identifier, require manual login
+      if (!userId) {
+        return 'Please log in with your username and password.';
+      }
+    }
+
+    // Prevent duplicate session for same user
     if (userId && OxPlayer.getFromUserId(userId)) {
       const kickReason = locales('userid_is_active', userId);
 
       if (!DEBUG) return kickReason;
 
-      userId = (await GetUserIdFromIdentifier(identifier, 1)) ?? 0;
-      if (userId && OxPlayer.getFromUserId(userId)) return kickReason;
+      // In DEBUG we’ll allow checking the next match (rare edge case)
+      const license = SV_LAN ? 'fayoum' : GetPlayerLicense(playerId);
+      if (license) {
+        const identifier = license.substring(license.indexOf(':') + 1);
+        const altUserId = (await GetUserIdFromIdentifier(identifier, 1)) ?? 0;
+        if (altUserId && OxPlayer.getFromUserId(altUserId)) return kickReason;
+        if (altUserId) userId = altUserId;
+      }
     }
 
-    const tokens = getPlayerTokens(playerId);
-    await UpdateUserTokens(userId, tokens);
+    // Tokens + ban check only for valid user
+    if (userId > 0) {
+      const tokens = getPlayerTokens(playerId);
+      await UpdateUserTokens(userId, tokens);
 
-    const ban = await IsUserBanned(userId);
-
-    if (ban) {
-      return OxPlayer.formatBanReason(ban);
+      const ban = await IsUserBanned(userId);
+      if (ban) {
+        return OxPlayer.formatBanReason(ban);
+      }
     }
 
-    player.username = GetPlayerName(player.source as string);
-    player.userId = userId ? userId : await CreateUser(player.username, GetIdentifiers(playerId));
-    player.identifier = identifier;
+    // Set identity/display name
+    player.userId = userId;
+    const dbUsername = userId ? await GetUsernameByUserId(userId) : undefined;
+    player.username = dbUsername ?? GetPlayerName(player.source as string);
 
     DEV: console.info(`Loaded player data for OxPlayer<${player.userId}>`);
-
     return player;
-  } catch (err) {
+  } catch (err: any) {
     console.error('Error loading player:', err);
 
     if (player?.userId) {
@@ -60,7 +105,7 @@ async function loadPlayer(playerId: number) {
       }
     }
 
-    return err.message;
+    return err?.message || 'Failed to load player.';
   }
 }
 
@@ -77,22 +122,20 @@ on('txAdmin:events:serverShuttingDown', () => {
   OxPlayer.saveAll(serverLockdown);
 });
 
-on('playerConnecting', async (username: string, _: any, deferrals: any) => {
-  const tempId = source;
-
+on('playerConnecting', (name: string, setKickReason: any, deferrals: any) => {
+  const src = source as number;
   deferrals.defer();
 
-  if (serverLockdown) return deferrals.done(serverLockdown);
+  // Optional: you can set a "please wait" message here
+  deferrals.update(`Welcome ${name}, opening login UI...`);
 
-  const player = await loadPlayer(tempId);
+  // Open the NUI login screen on the client
 
-  if (!(player instanceof OxPlayer)) return deferrals.done(player || 'Failed to load player.');
-
-  connectingPlayers[tempId] = player;
-
+  // Immediately finish deferral (player enters, but frozen in NUI focus)
   deferrals.done();
-});
+  emitNet('ox:nui:open', src);
 
+});
 on('playerJoining', async (tempId: string) => {
   if (serverLockdown) return DropPlayer(source.toString(), serverLockdown);
 
@@ -107,18 +150,9 @@ on('playerJoining', async (tempId: string) => {
   DEV: console.info(`Assigned id ${source} to OxPlayer<${player.userId}>`);
 });
 
-onNet('ox:playerJoined', async () => {
-  const playerSrc = source;
-  const player = connectingPlayers[playerSrc] || (await loadPlayer(playerSrc));
-  delete connectingPlayers[playerSrc];
-
-  if (!(player instanceof OxPlayer)) return DropPlayer(playerSrc.toString(), player || 'Failed to load player.');
-
-  player.setAsJoined();
-});
-
 on('playerDropped', () => {
   const player = OxPlayer.get(source);
+  SavePlayer(player);
 
   if (!player) return;
 
@@ -135,3 +169,13 @@ RegisterCommand(
   },
   true,
 );
+
+// --- Manual login state ---
+const loginOverride: Record<number, number> = {};
+const loginVerified = new Set<number>();
+const joinedPending = new Set<number>();
+function setLoginOverride(src: number, userId: number) { loginOverride[src] = userId; }
+
+// --- Manual login: username/password ---
+onNet('ox:submitLogin', async (username: string, password: string) => {
+});

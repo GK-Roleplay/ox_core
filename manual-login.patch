@@ -1,0 +1,271 @@
+diff --git a/package.json b/package.json
+index 1111111..2222222 100644
+--- a/package.json
++++ b/package.json
+@@ -10,6 +10,7 @@
+   "devDependencies": {
+     "typescript": "^5.5.0"
+   },
++  "dependencies": { "bcryptjs": "^2.4.3" },
+   "scripts": {
+     "build": "bun run build.js",
+     "lint": "eslint .",
+diff --git a/server/player/db.ts b/server/player/db.ts
+index 1111111..2222222 100644
+--- a/server/player/db.ts
++++ b/server/player/db.ts
+@@ -1,6 +1,8 @@
+ import { db } from '../db';
+ 
+ export function GetUserIdFromIdentifier(identifier: string) {
+   return db.column<number>('SELECT id FROM users WHERE identifier = ? LIMIT 1', [identifier]);
+ }
++
++export function GetUserAuthByUsername(username: string) {
++  return db.single<{ userId: number; password_hash: string; banned: number }>(
++    'SELECT id AS userId, password_hash, banned FROM users WHERE username = ? LIMIT 1',
++    [username],
++  );
++}
++
++export function GetUsernameByUserId(userId: number) {
++  return db.column<string>('SELECT username FROM users WHERE id = ? LIMIT 1', [userId]);
++}
+diff --git a/server/player/loading.ts b/server/player/loading.ts
+index 1111111..2222222 100644
+--- a/server/player/loading.ts
++++ b/server/player/loading.ts
+@@ -1,16 +1,35 @@
+-import { OxPlayer } from './player';
+-import { GetPlayerLicense, getPlayerTokens } from '../utils';
+-import { GetUserIdFromIdentifier, UpdateUserTokens, IsUserBanned } from './db';
++import { OxPlayer } from './player';
++import { GetPlayerLicense, getPlayerTokens } from '../utils';
++import { GetUserIdFromIdentifier, UpdateUserTokens, IsUserBanned, GetUserAuthByUsername, GetUsernameByUserId } from './db';
++import bcrypt from 'bcryptjs';
+ import { locales } from '../i18n';
+ 
+ const connectingPlayers: Record<number, OxPlayer | string | undefined> = {};
+ let serverLockdown: string | undefined;
+ 
++// --- Manual login state ---
++const loginOverride: Record<number, number> = {};  // src -> userId
++const loginVerified = new Set<number>();
++const joinedPending = new Set<number>();
++function setLoginOverride(src: number, userId: number) { loginOverride[src] = userId; }
++
+ export async function loadPlayer(playerId: number) {
+   let player: OxPlayer | undefined;
+ 
+   try {
+     if (serverLockdown) return serverLockdown;
+ 
+     player = new OxPlayer(playerId);
+-    const license = SV_LAN ? 'fayoum' : GetPlayerLicense(playerId);
+-    if (!license) return locales('no_license');
+-    const identifier = license.substring(license.indexOf(':') + 1);
+-    player.identifier = identifier;
+-    let userId = (await GetUserIdFromIdentifier(identifier)) ?? 0;
+-    if (!userId) {
+-      // existing behaviour: auto-create (removed)
+-      return locales('no_license');
+-    }
++    let userId = 0;
++
++    // If the player has already authenticated with username/password, skip identifier path
++    const forced = loginOverride[playerId];
++    if (forced) {
++      userId = forced;
++    } else {
++      // Keep identifier for token/bans, but DO NOT auto-create users
++      const license = SV_LAN ? 'fayoum' : GetPlayerLicense(playerId);
++      if (!license) return locales('no_license');
++      const identifier = license.substring(license.indexOf(':') + 1);
++      player.identifier = identifier;
++      userId = (await GetUserIdFromIdentifier(identifier)) ?? 0;
++      if (!userId) {
++        // Require manual login
++        return 'Please log in with your username and password.';
++      }
++    }
+ 
+     const tokens = getPlayerTokens(playerId);
+     await UpdateUserTokens(userId, tokens);
+@@ -24,6 +43,13 @@ export async function loadPlayer(playerId: number) {
+       return OxPlayer.formatBanReason(ban);
+     }
+ 
+-    player.userId = userId;
+-    player.username = GetPlayerName(player.source as string);
++    player.userId = userId;
++    const dbUsername = await GetUsernameByUserId(userId);
++    player.username = dbUsername ?? GetPlayerName(player.source as string);
++
++    // cleanup one-shot override
++    if (forced) {
++      delete loginOverride[playerId];
++    }
++
+     return player;
+   } catch (e: any) {
+     if (player?.userId) {
+@@ -37,29 +63,86 @@ export async function loadPlayer(playerId: number) {
+ }
+ 
+ on('playerConnecting', async (_name: string, _setKickReason: any, deferrals: any) => {
+-  const tempId = source;
+-  deferrals.defer();
+-  if (serverLockdown) return deferrals.done(serverLockdown);
+-  const result = await loadPlayer(tempId);
+-  connectingPlayers[tempId] = result as any;
+-  deferrals.done();
++  const tempId = source;
++  deferrals.defer();
++  if (serverLockdown) return deferrals.done(serverLockdown);
++  // Do not pre-load here (we require manual login first)
++  connectingPlayers[tempId] = undefined as any;
++  deferrals.done();
+ });
+ 
+ on('playerJoining', async (tempId: string) => {
+   if (serverLockdown) return DropPlayer(source.toString(), serverLockdown);
+ 
+   delete connectingPlayers[tempId];
+   connectingPlayers[source] = undefined as any;
+-  const player = connectingPlayers[source] || (await loadPlayer(source));
+-  delete connectingPlayers[source];
+-  if (!(player instanceof OxPlayer)) return DropPlayer(source.toString(), player || 'Failed to load player.');
+-  player.setAsJoined();
++
++  // Ask client to show login UI; finalize when server receives valid credentials
++  emitNet('ox:showLogin', source);
+ });
+ 
+ onNet('ox:playerJoined', async () => {
+-  const player = connectingPlayers[source] || (await loadPlayer(source));
+-  delete connectingPlayers[source];
+-  if (!(player instanceof OxPlayer)) return DropPlayer(source.toString(), player || 'Failed to load player.');
+-  player.setAsJoined();
++  const src = source as number;
++  // If they haven't logged in yet, remember and wait
++  if (!loginVerified.has(src)) {
++    joinedPending.add(src);
++    return;
++  }
++  const player = connectingPlayers[src] || (await loadPlayer(src));
++  delete connectingPlayers[src];
++  if (!(player instanceof OxPlayer)) return DropPlayer(src.toString(), player || 'Failed to load player.');
++  player.setAsJoined();
+ });
++
++// --- Manual login: username/password ---
++onNet('ox:submitLogin', async (username: string, password: string) => {
++  const src = source as number;
++  if (!username || !password) {
++    return emitNet('ox:loginResult', src, false, 'Missing credentials.');
++  }
++  const row = await GetUserAuthByUsername(username);
++  if (!row?.userId || !row.password_hash) {
++    return emitNet('ox:loginResult', src, false, 'Invalid username or password.');
++  }
++  const ok = await bcrypt.compare(password, row.password_hash);
++  if (!ok) {
++    return emitNet('ox:loginResult', src, false, 'Invalid username or password.');
++  }
++  // Auth OK: load player via override
++  setLoginOverride(src, row.userId);
++  const player = await loadPlayer(src);
++  if (!(player instanceof OxPlayer)) {
++    return emitNet('ox:loginResult', src, false, player || 'Failed to load player.');
++  }
++  connectingPlayers[src] = player;
++  loginVerified.add(src);
++  emitNet('ox:loginResult', src, true, 'Login successful.');
++
++  // If client already sent ox:playerJoined, finalize now
++  if (joinedPending.has(src)) {
++    joinedPending.delete(src);
++    player.setAsJoined();
++  }
++});
+diff --git a/client/index.ts b/client/index.ts
+index 1111111..2222222 100644
+--- a/client/index.ts
++++ b/client/index.ts
+@@ -1,7 +1,8 @@
+ export * from '../common';
+ import { PLATE_PATTERN } from 'config';
+ import 'player';
+ import 'spawn';
+ import 'death';
+ import 'vehicle';
++import './login';
+ 
+ for (let i = 0; i < GetNumberOfVehicleNumberPlates(); i++) {
+   SetDefaultVehicleNumberPlateTextPattern(i, PLATE_PATTERN);
+diff --git a/client/login.ts b/client/login.ts
+new file mode 100644
+index 0000000..1111111
+--- /dev/null
++++ b/client/login.ts
+@@ -0,0 +1,63 @@
++// Simple, no-NUI login using ox_lib input dialog
++// Requires ox_lib to be present as usual in ox_core setups.
++
++// If you prefer native text entries, you can replace this with your own flow.
++
++onNet('ox:showLogin', async () => {
++  try {
++    DoScreenFadeOut(0);
++    let authed = false;
++    while (!authed) {
++      // @ts-ignore – ox_lib global inputDialog in typical setups
++      const input = await lib.inputDialog('Login', [
++        { type: 'input', label: 'Username', required: true },
++        { type: 'password', label: 'Password', required: true },
++      ]);
++      if (!input) continue;
++      const [username, password] = input as [string, string];
++      emitNet('ox:submitLogin', username, password);
++      const result: { ok: boolean; msg?: string } = await new Promise((resolve) => {
++        const h = onNet('ox:loginResult', (success: boolean, message?: string) => {
++          // @ts-ignore
++          removeEventListener('ox:loginResult', h);
++          resolve({ ok: success, msg: message });
++        });
++      });
++      if (result.ok) {
++        authed = true;
++      } else {
++        BeginTextCommandThefeedPost('STRING');
++        AddTextComponentSubstringPlayerName(result.msg ?? 'Login failed');
++        EndTextCommandThefeedPostTicker(false, false);
++        await Wait(500);
++      }
++    }
++  } finally {
++    DoScreenFadeIn(500);
++  }
++});
+diff --git a/migrations/20250906_username_password.sql b/migrations/20250906_username_password.sql
+new file mode 100644
+index 0000000..1111111
+--- /dev/null
++++ b/migrations/20250906_username_password.sql
+@@ -0,0 +1,25 @@
++-- Username/password migration for ox_core users table
++-- Adjust table/column names if your schema differs.
++ALTER TABLE `users`
++  ADD COLUMN `username` VARCHAR(64) NOT NULL UNIQUE AFTER `id`,
++  ADD COLUMN `password_hash` VARCHAR(255) NOT NULL AFTER `username`;
++
++-- TEMP backfill for existing rows (pick your own policy)
++-- WARNING: set real hashes ASAP; this is only to keep rows consistent.
++UPDATE `users`
++SET
++  `username` = COALESCE(`username`, CONCAT('user', id)),
++  `password_hash` = COALESCE(`password_hash`, '$2a$10$u2A9uBvYw5i8vTQdT3eKpOq7Q8cF2sG7c2SgIh5B0U7KOG1o4iu5i'); -- bcrypt("changeme")
++
++-- You may also want to enforce NOT NULL on existing identifier-based columns later,
++-- or remove auto-creation triggers/routines if any external tooling was adding rows.
+

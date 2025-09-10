@@ -1,0 +1,277 @@
+// client/preview.ts — v3.1
+// Adds robust, *provable* model resolution with verified fallbacks,
+// a safe preview room, orbit camera, and NUI endpoints for start/update/rotate/zoom/end.
+//
+// Design goals:
+// - Never attempt to place a ped until we have *proven* the model is valid *and* loaded.
+// - Provide step-by-step logs so we can verify which candidate was chosen and why.
+// - Keep original player state safe; restore on exit.
+// - Orbit camera with mouse via NUI events (rotatePreview/zoomPreview).
+
+const wait = (ms: number) => new Promise(res => setTimeout(res, ms));
+
+// --- State ---
+let inRoom = false;
+let previewPed = 0 as number;
+let scriptCam = 0 as number;
+let currentModelHash = 0;
+let loadedModels = new Set<number>();
+
+let savedPos: [number, number, number] | null = null;
+let savedHeading = 0.0;
+
+// --- Preview room ---
+const room = { x: 402.915, y: -996.917, z: -99.0 };
+const pedPivot = { x: room.x, y: room.y + 1.0, z: room.z };
+let camRadius = 1.6;
+let camYawDeg = 180.0;
+const camPitchDeg = -5.0;
+
+// --- Helpers ---
+function setRadarHud(show: boolean) {
+  try {
+    DisplayRadar(show);
+    DisplayHud(show);
+  } catch {}
+}
+
+// Compute orbit camera position from spherical-ish controls
+function getOrbitCameraPos() {
+  const yaw = (camYawDeg * Math.PI) / 180.0;
+  const pitch = (camPitchDeg * Math.PI) / 180.0;
+  const x = pedPivot.x + camRadius * Math.cos(pitch) * Math.cos(yaw);
+  const y = pedPivot.y + camRadius * Math.cos(pitch) * Math.sin(yaw);
+  const z = pedPivot.z + camRadius * Math.sin(pitch) + 0.8;
+  return [x, y, z] as [number, number, number];
+}
+
+function refreshCamera() {
+  if (scriptCam && DoesCamExist(scriptCam)) {
+    DestroyCam(scriptCam, false);
+    RenderScriptCams(false, false, 0, true, true);
+  }
+  const [cx, cy, cz] = getOrbitCameraPos();
+  scriptCam = CreateCamWithParams('DEFAULT_SCRIPTED_CAMERA', cx, cy, cz, 0.0, 0.0, 0.0, 50.0, false, 2);
+  PointCamAtCoord(scriptCam, pedPivot.x, pedPivot.y, pedPivot.z + 0.8);
+  SetCamActive(scriptCam, true);
+  RenderScriptCams(true, false, 0, true, true);
+}
+
+// --- Model proof loader ---
+async function tryLoadModel(hash: number, label: string, timeoutMs = 5000) {
+  const start = GetGameTimer();
+  RequestModel(hash);
+  let ok = HasModelLoaded(hash);
+  while (!ok && GetGameTimer() - start < timeoutMs) {
+    await wait(10);
+    RequestModel(hash);
+    ok = HasModelLoaded(hash);
+  }
+  const took = GetGameTimer() - start;
+  if (ok) {
+    console.log(`[preview] Model '${label}' (${hash}) loaded in ${took}ms`);
+    return true;
+  } else {
+    console.warn(`[preview] Model '${label}' (${hash}) failed to load after ${took}ms`);
+    return false;
+  }
+}
+
+// Resolve a model from user input with *provable* fallback candidates.
+// Returns a hash that is guaranteed loaded (HasModelLoaded===true) or throws.
+async function resolveAndLoadModel(modelName: string): Promise<number> {
+  const clean = (modelName || '').trim();
+  const candidates: Array<{ label: string; hash: number }> = [];
+
+  // 1) User-intended model
+  const primaryHash = GetHashKey(clean);
+  candidates.push({ label: clean || '(empty)', hash: primaryHash });
+
+  // 2) Smart fallbacks (ordered by preference)
+  const fallbackNames = [
+    'mp_m_freemode_01',
+    'mp_f_freemode_01',
+    'a_m_m_skater_01', // lightweight male ped
+    'a_f_y_hipster_02' // lightweight female ped
+  ];
+  for (const n of fallbackNames) {
+    candidates.push({ label: `[fallback] ${n}`, hash: GetHashKey(n) });
+  }
+
+  // Walk candidates and *prove* validity & load
+  for (const { label, hash } of candidates) {
+    const valid = IsModelInCdimage(hash) && IsModelValid(hash);
+    console.log(`[preview] Probe '${label}' (${hash}) valid=${valid}`);
+    if (!valid) continue;
+    const loaded = await tryLoadModel(hash, label);
+    if (loaded) return hash;
+  }
+
+  throw new Error('No valid ped models could be loaded.');
+}
+
+// --- Room lifecycle ---
+async function enterPreviewRoom() {
+  if (inRoom) return;
+
+  const ped = PlayerPedId();
+  // Save state
+  savedHeading = GetEntityHeading(ped);
+  const [x,y,z] = GetEntityCoords(ped, true);
+  savedPos = [x,y,z];
+
+  // Move to room
+  RequestCollisionAtCoord(room.x, room.y, room.z);
+  SetEntityCoords(ped, room.x, room.y, room.z, false, false, false, false);
+  SetEntityHeading(ped, 180.0);
+  FreezeEntityPosition(ped, true);
+  SetEntityCollision(ped, false, false);
+  setRadarHud(false);
+
+  // Camera
+  refreshCamera();
+  inRoom = true;
+}
+
+function freeLoadedModels(except?: number) {
+  for (const h of Array.from(loadedModels)) {
+    if (!except || h !== except) {
+      SetModelAsNoLongerNeeded(h);
+      loadedModels.delete(h);
+    }
+  }
+}
+
+function leavePreviewRoom() {
+  // Cleanup ped
+  if (previewPed && DoesEntityExist(previewPed)) {
+    DeleteEntity(previewPed);
+  }
+  previewPed = 0;
+  currentModelHash = 0;
+
+  // Camera off
+  if (scriptCam && DoesCamExist(scriptCam)) {
+    DestroyCam(scriptCam, false);
+    RenderScriptCams(false, false, 0, true, true);
+    scriptCam = 0;
+  }
+
+  // Free models
+  freeLoadedModels();
+
+  // Restore player
+  const ped = PlayerPedId();
+  if (savedPos) {
+    SetEntityCoords(ped, savedPos[0], savedPos[1], savedPos[2], false, false, false, false);
+    SetEntityHeading(ped, savedHeading);
+  }
+  FreezeEntityPosition(ped, false);
+  SetEntityCollision(ped, true, true);
+  setRadarHud(true);
+
+  inRoom = false;
+  savedPos = null;
+}
+
+// Create or swap the preview ped with a *proven* model hash
+async function createOrUpdatePreviewPed(modelName: string) {
+  if (!inRoom) throw new Error('Not in preview room');
+
+  // If user re-selected the same label, still verify; but keep if unchanged
+  const resolvedHash = await resolveAndLoadModel(modelName);
+  if (currentModelHash === resolvedHash && previewPed && DoesEntityExist(previewPed)) {
+    console.log('[preview] Same model already active; skipping re-create.');
+    return;
+  }
+
+  loadedModels.add(resolvedHash);
+
+  // Delete old
+  if (previewPed && DoesEntityExist(previewPed)) {
+    DeleteEntity(previewPed);
+  }
+
+  // Create ped
+  previewPed = CreatePed(26, resolvedHash, pedPivot.x, pedPivot.y, pedPivot.z, 180.0, false, false);
+  if (!previewPed || !DoesEntityExist(previewPed)) {
+    throw new Error('CreatePed failed despite model being loaded.');
+  }
+
+  // Idle look & heading
+  SetEntityHeading(previewPed, 180.0);
+  TaskLookAtCoord(previewPed, pedPivot.x, pedPivot.y + 5.0, pedPivot.z + 0.5, -1, 2048, 3);
+  SetPedDefaultComponentVariation(previewPed);
+
+  currentModelHash = resolvedHash;
+  // Keep camera focused
+  refreshCamera();
+}
+
+// --- NUI API ---
+RegisterNuiCallbackType('startPreview');
+on('__cfx_nui:startPreview', async (data: any, cb: Function) => {
+  try {
+    await enterPreviewRoom();
+    const modelName = (data?.model || 'mp_m_freemode_01').trim();
+    await createOrUpdatePreviewPed(modelName);
+    cb({ ok: true });
+  } catch (e: any) {
+    console.error('[preview] startPreview failed', e);
+    cb({ ok: false, error: e?.message || 'exception' });
+    leavePreviewRoom();
+  }
+});
+
+RegisterNuiCallbackType('updatePreviewPed');
+on('__cfx_nui:updatePreviewPed', async (data: any, cb: Function) => {
+  try {
+    const modelName = (data?.model || 'mp_m_freemode_01').trim();
+    await createOrUpdatePreviewPed(modelName);
+    cb({ ok: true });
+  } catch (e: any) {
+    console.error('[preview] updatePreviewPed failed', e);
+    cb({ ok: false, error: e?.message || 'exception' });
+  }
+});
+
+RegisterNuiCallbackType('rotatePreview');
+on('__cfx_nui:rotatePreview', (data: any, cb: Function) => {
+  if (!inRoom || !previewPed || !DoesEntityExist(previewPed)) return cb?.({ ok: false });
+  const delta = Number(data?.delta ?? 15);
+  try {
+    const currentHeading = GetEntityHeading(previewPed);
+    SetEntityHeading(previewPed, (currentHeading + delta + 360.0) % 360.0);
+    cb?.({ ok: true });
+  } catch {
+    cb?.({ ok: false });
+  }
+});
+
+RegisterNuiCallbackType('zoomPreview');
+on('__cfx_nui:zoomPreview', (data: any, cb: Function) => {
+  if (!inRoom) return cb?.({ ok: false });
+  const value = Number(data?.value ?? 50); // 0..100
+  try {
+    const minZoom = 1.0;
+    const maxZoom = 3.5;
+    camRadius = minZoom + (Math.max(0, Math.min(100, value)) / 100) * (maxZoom - minZoom);
+    refreshCamera();
+    cb?.({ ok: true });
+  } catch {
+    cb?.({ ok: false });
+  }
+});
+
+RegisterNuiCallbackType('endPreview');
+on('__cfx_nui:endPreview', (_d: any, cb: Function) => {
+  leavePreviewRoom();
+  cb?.({ ok: true });
+});
+
+// Cleanup on resource stop
+onNet('onClientResourceStop', (resourceName: string) => {
+  if (GetCurrentResourceName() === resourceName) {
+    leavePreviewRoom();
+  }
+});

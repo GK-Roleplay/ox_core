@@ -17,6 +17,25 @@ export function CreateUser(username: string, { license2, steam, fivem, discord }
   ]);
 }
 
+export function GetUserAuthByUsername(username: string) {
+  return db.row<{ userId: number; password_hash: string }>(
+    'SELECT userId, password_hash FROM users WHERE username = ? LIMIT 1',
+    [username]
+  );
+}
+
+
+/**
+ * Get a username back from userId.
+ */
+export function GetUsernameByUserId(userId: number) {
+  return db.column<string>(
+    'SELECT username FROM users WHERE userId = ? LIMIT 1',
+    [userId] as any,
+  );
+}
+
+
 export async function IsStateIdAvailable(stateId: string) {
   return !(await db.exists('SELECT 1 FROM characters WHERE stateId = ?', [stateId]));
 }

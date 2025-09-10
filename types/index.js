@@ -1,0 +1,26 @@
+export var VehicleClasses;
+(function (VehicleClasses) {
+    VehicleClasses[VehicleClasses["COMPACT"] = 0] = "COMPACT";
+    VehicleClasses[VehicleClasses["SEDAN"] = 1] = "SEDAN";
+    VehicleClasses[VehicleClasses["SUV"] = 2] = "SUV";
+    VehicleClasses[VehicleClasses["COUPE"] = 3] = "COUPE";
+    VehicleClasses[VehicleClasses["MUSCLE"] = 4] = "MUSCLE";
+    VehicleClasses[VehicleClasses["SPORTS_CLASSIC"] = 5] = "SPORTS_CLASSIC";
+    VehicleClasses[VehicleClasses["SPORTS"] = 6] = "SPORTS";
+    VehicleClasses[VehicleClasses["SUPER"] = 7] = "SUPER";
+    VehicleClasses[VehicleClasses["MOTORCYCLE"] = 8] = "MOTORCYCLE";
+    VehicleClasses[VehicleClasses["OFFROAD"] = 9] = "OFFROAD";
+    VehicleClasses[VehicleClasses["INDUSTRIAL"] = 10] = "INDUSTRIAL";
+    VehicleClasses[VehicleClasses["UTILITY"] = 11] = "UTILITY";
+    VehicleClasses[VehicleClasses["VANS"] = 12] = "VANS";
+    VehicleClasses[VehicleClasses["CYCLES"] = 13] = "CYCLES";
+    VehicleClasses[VehicleClasses["BOATS"] = 14] = "BOATS";
+    VehicleClasses[VehicleClasses["HELICOPTERS"] = 15] = "HELICOPTERS";
+    VehicleClasses[VehicleClasses["PLANES"] = 16] = "PLANES";
+    VehicleClasses[VehicleClasses["SERVICE"] = 17] = "SERVICE";
+    VehicleClasses[VehicleClasses["EMERGENCY"] = 18] = "EMERGENCY";
+    VehicleClasses[VehicleClasses["MILITARY"] = 19] = "MILITARY";
+    VehicleClasses[VehicleClasses["COMMERCIAL"] = 20] = "COMMERCIAL";
+    VehicleClasses[VehicleClasses["TRAINS"] = 21] = "TRAINS";
+    VehicleClasses[VehicleClasses["OPEN_WHEEL"] = 22] = "OPEN_WHEEL";
+})(VehicleClasses || (VehicleClasses = {}));

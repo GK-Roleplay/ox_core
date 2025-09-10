@@ -1,27 +1,25 @@
 {
   "compilerOptions": {
     "baseUrl": ".",
-    "rootDir": ".",
-    "noImplicitAny": true,
-    "strictNullChecks": true,
-    "module": "es2022",
-    "target": "es2023",
-    "lib": ["es2023", "esnext.disposable"],
-    "types": ["@citizenfx/client", "@citizenfx/server"],
-    "resolveJsonModule": true,
-    "esModuleInterop": true,
-    "allowUnreachableCode": false,
-    "strictFunctionTypes": true,
-    "moduleResolution": "bundler",
-    "noImplicitThis": true,
-    "noUnusedLocals": true,
+    "paths": {
+      "types": ["types/index.ts"],
+      "config": ["server/config.ts"],
+      "db": ["server/db/index.ts"],
+      "accounts": ["server/accounts/index.ts"],
+      "accounts/*": ["server/accounts/*"],
+      "groups": ["server/groups/index.ts"],
+      "groups/*": ["server/groups/*"],
+      "player/*": ["server/player/*"],
+      "vehicle": ["server/vehicle/index.ts"],
+      "vehicle/*": ["server/vehicle/*"],
+      "bridge/*": ["server/bridge/*"]
+    },
     "skipLibCheck": true,
-    "declaration": true,
-    "noEmit": false,
-    "emitDeclarationOnly": true,
-    "removeComments": true,
-    "outDir": "./package/"
+    "module": "commonjs",
+    "moduleResolution": "node",
+    "target": "es2020",
+    "noEmit": true
   },
-  "include": ["./", "./types/"],
-  "references": [{ "path": "./lib" }]
+  "include": ["client", "server", "common", "types"]
 }
+  

@@ -1,0 +1,16 @@
+{
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "declaration": true,
+    "emitDeclarationOnly": true,
+    "outDir": "package",
+    "skipLibCheck": true,
+    "noEmitOnError": false,
+
+    /* IMPORTANT: drop FiveM type entries here */
+    "types": ["bun", "node"],
+    "typeRoots": ["./types", "./node_modules/@types"]
+  },
+  "include": ["client", "server", "common", "types"]
+}
+

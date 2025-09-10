@@ -16,8 +16,8 @@
     "./server": "./package/lib/server/index.js"
   },
   "scripts": {
-    "build": "bun run build.js",
-    "watch": "bun run build.js --watch",
+  "build": "bun run build.mjs",
+  "watch": "bun run build.mjs --watch",
     "format": "bun run biome format --write",
     "lint": "bun run biome lint --write"
   },
@@ -37,16 +37,20 @@
     "@citizenfx/client": "latest",
     "@citizenfx/server": "latest",
     "@communityox/fx-utils": "^0.0.4",
-    "@types/node": "^22.13.10",
+    "@types/bcryptjs": "^3.0.0",
+    "@types/bun": "^1.2.21",
+    "@types/node": "^24.3.1",
     "esbuild": "^0.23.1",
     "tsc-alias": "^1.8.11",
-    "typescript": "^5.8.2"
+    "typescript": "^5.9.2"
   },
   "dependencies": {
     "@biomejs/biome": "^1.9.4",
+    "@communityox/ox_lib": "^3.29.0",
     "@nativewrappers/fivem": "^0.0.86",
     "@nativewrappers/server": "^0.0.86",
-    "@communityox/ox_lib": "^3.29.0",
+    "bcrypt": "^6.0.0",
+    "bcryptjs": "^2.4.3",
     "mariadb": "^3.4.1"
   },
   "engines": {

@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>GK:RP — Welcome</title>
+  <link rel="preload" href="assets/logo.png" as="image">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body style="background: transparent !important;" class="hidden">
+  <div class="stage" style="background: transparent !important;">
+    <header class="brand">
+      <img src="assets/logo.png" alt="GK:RP crest" height="76" width="76">
+      <div class="caption">FIVEM COMMUNITY</div>
+    </header>
+
+      <div id="alert" role="status" aria-live="polite"></div>
+
+      <div style="background: transparent !important;" class="step active" data-step="welcome">
+        <div class="head">
+          <h1 class="title">Welcome to GK:RP</h1>
+        </div>
+        <div class="body">
+          <p class="muted">Please log in to your account or register a new character to enter the city.</p>
+          <div class="step-nav">
+            <button class="btn btn-secondary w-full" data-nav="login">Login</button>
+            <button class="btn btn-primary w-full" data-nav="register-account">Register</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="step" data-step="login">
+        <div class="head">
+          <h1 class="title">Account Login</h1>
+        </div>
+        <div class="body">
+          <div class="field">
+            <label class="label" for="login-username">Username</label>
+            <input id="login-username" class="input" name="username" placeholder="Your username" autocomplete="username" inputmode="text" maxlength="32" required>
+          </div>
+          <div class="field">
+            <label class="label" for="login-password">Password</label>
+            <input id="login-password" type="password" class="input" name="password" placeholder="••••••••" autocomplete="current-password" maxlength="64" required>
+          </div>
+          <div class="step-nav">
+            <button class="btn btn-back" data-nav="welcome" type="button">Back</button>
+            <button id="btn-login" class="btn btn-primary w-full" type="submit">Enter City</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="step" data-step="register-account">
+        <div class="head">
+          <h1 class="title">Create Account (1/3)</h1>
+        </div>
+        <div class="body">
+          <p class="muted tiny">First, let's set up your login details.</p>
+          <div class="field">
+            <label class="label" for="reg-username">Account Username</label>
+            <input id="reg-username" class="input" placeholder="Choose a unique username" autocomplete="username" maxlength="32" required>
+          </div>
+          <div class="field">
+            <label class="label" for="reg-password">Account Password</label>
+            <input id="reg-password" type="password" class="input" placeholder="Create a strong password" autocomplete="new-password" maxlength="64" required>
+          </div>
+          <div class="step-nav">
+            <button class="btn btn-back" data-nav="welcome" type="button">Back</button>
+            <button class="btn btn-primary w-full" data-nav="register-identity" type="button">Next Step</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="step" data-step="register-identity">
+        <div class="head">
+          <h1 class="title">Your Character (2/3)</h1>
+        </div>
+        <div class="body">
+          <div class="field">
+            <label class="label">Character Name</label>
+            <div class="row">
+              <input id="reg-first" class="input" placeholder="First name" maxlength="20" required>
+              <input id="reg-last" class="input" placeholder="Last name" maxlength="20" required>
+            </div>
+            <div class="helper">Please select a realistic, roleplay-friendly name.</div>
+          </div>
+          <div class="field">
+            <label class="label" for="reg-age">Age</label>
+            <input id="reg-age" class="input" type="number" min="18" max="80" value="21" placeholder="21" required>
+          </div>
+          <div class="step-nav">
+            <button class="btn btn-back" data-nav="register-account" type="button">Back</button>
+            <button class="btn btn-primary w-full" data-nav="register-bio" type="button">Next Step</button>
+          </div>
+        </div>
+      </div>
+
+      <div class="step" data-step="register-bio">
+        <div class="head">
+          <h1 class="title">Details (3/3)</h1>
+        </div>
+        <div class="body">
+          <div class="field">
+            <label class="label" for="reg-ped">Character Model</label>
+            <div class="row row-compact">
+              <div class="custom-select-wrapper">
+                <input type="hidden" id="reg-ped" name="ped">
+                <div class="custom-select-trigger" tabindex="0">
+                  <span class="selected-value">Select a model...</span>
+                  <svg class="chevron" width="16" height="16" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M6 9L12 15L18 9" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+                </div>
+                <div class="custom-select-options">
+                  </div>
+              </div>
+              <button id="btn-preview" class="btn btn-secondary" type="button" title="Preview selected model">Preview</button>
+            </div>
+          </div>
+          <div class="field">
+            <label class="label" for="reg-desc">Character Backstory</label>
+            <textarea id="reg-desc" class="textarea" maxlength="400" placeholder="A short bio about your character's history, personality, and goals..."></textarea>
+            <div class="helper"><span id="desc-count" class="counter">400</span> characters remaining</div>
+          </div>
+          <div class="step-nav">
+             <button class="btn btn-back" data-nav="register-identity" type="button">Back</button>
+            <button id="btn-register" class="btn btn-primary w-full" type="submit">Create Character</button>
+          </div>
+        </div>
+
+      <footer class="foot">
+        By continuing you agree to the server rules.
+      </footer>
+  </div>
+
+  <script src="ui.js"></script>
+</body>
+</html>

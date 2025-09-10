@@ -1,0 +1,63 @@
+[
+  { "label": "Freemode Male",              "model": "mp_m_freemode_01" },
+  { "label": "Freemode Female",            "model": "mp_f_freemode_01" },
+
+  { "label": "Beach Male A",               "model": "a_m_m_beach_01" },
+  { "label": "Beach Male B",               "model": "a_m_m_beach_02" },
+  { "label": "Beach Male C",               "model": "a_m_y_beach_01" },
+  { "label": "Beach Male D",               "model": "a_m_y_beach_02" },
+  { "label": "Beach Male E",               "model": "a_m_y_beach_03" },
+  { "label": "Beach Male F",               "model": "a_f_m_beach_01" },
+  { "label": "Beach Male G",               "model": "a_f_y_beach_01" },
+  { "label": "Beach Male H",               "model": "a_f_y_beach_02" },
+
+  { "label": "Beach Female A",             "model": "a_f_y_bevhills_01" },
+  { "label": "Beach Female B",             "model": "a_f_y_bevhills_02" },
+  { "label": "Beach Female C",             "model": "a_f_y_bevhills_03" },
+  { "label": "Beach Female D",             "model": "a_f_y_bevhills_04" },
+  { "label": "Beach Female E",             "model": "a_f_y_beach_01" },
+  { "label": "Beach Female F",             "model": "a_f_y_beach_02" },
+
+  { "label": "Business Male A",            "model": "a_m_y_business_01" },
+  { "label": "Business Male B",            "model": "a_m_y_business_02" },
+  { "label": "Business Male C",            "model": "a_m_y_business_03" },
+  { "label": "Business Male D",            "model": "a_m_y_business_04" },
+
+  { "label": "Business Female A",          "model": "a_f_y_business_01" },
+  { "label": "Business Female B",          "model": "a_f_y_business_02" },
+  { "label": "Business Female C",          "model": "a_f_y_business_03" },
+  { "label": "Business Female D",          "model": "a_f_y_business_04" },
+
+  { "label": "Cyclist Male",               "model": "a_m_y_cyclist_01" },
+  { "label": "Cyclist Female",             "model": "a_f_y_cyclist_01" },
+
+  { "label": "Hipster Male A",             "model": "a_m_y_hipster_01" },
+  { "label": "Hipster Male B",             "model": "a_m_y_hipster_02" },
+  { "label": "Hipster Male C",             "model": "a_m_y_hipster_03" },
+  { "label": "Hipster Male D",             "model": "a_m_y_hipster_04" },
+
+  { "label": "Hipster Female A",           "model": "a_f_y_hipster_01" },
+  { "label": "Hipster Female B",           "model": "a_f_y_hipster_02" },
+  { "label": "Hipster Female C",           "model": "a_f_y_hipster_03" },
+  { "label": "Hipster Female D",           "model": "a_f_y_hipster_04" },
+
+  { "label": "Skater Male",                "model": "a_m_y_skater_01" },
+  { "label": "Skater Female",              "model": "a_f_y_skater_01" },
+
+  { "label": "Tourist Male A",             "model": "a_m_y_tourist_01" },
+  { "label": "Tourist Male B",             "model": "a_m_y_tourist_02" },
+
+  { "label": "Tourist Female A",           "model": "a_f_y_tourist_01" },
+  { "label": "Tourist Female B",           "model": "a_f_y_tourist_02" },
+
+  { "label": "Tramp Male",                 "model": "a_m_m_tramp_01" },
+  { "label": "Tramp Female",               "model": "a_f_m_tramp_01" },
+
+  { "label": "Construction Male A",        "model": "s_m_y_construct_01" },
+  { "label": "Construction Male B",        "model": "s_m_y_construct_02" },
+  { "label": "Construction Male C",        "model": "s_m_m_dockwork_01" },
+  { "label": "Construction Male D",        "model": "s_m_y_dockwork_01" },
+
+  { "label": "Cop Male",                   "model": "s_m_y_cop_01" },
+  { "label": "Cop Female",                 "model": "s_f_y_cop_01" }
+]
